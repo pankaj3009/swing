@@ -1,0 +1,362 @@
+SetBarsRequired(-2,-2);
+SetOption( "ExtraColumnsLocation", 1 );
+OptimizerSetEngine( "cmae" );
+SetBacktestMode( backtestRegular );
+//SetBacktestMode( backtestRegularRawMulti );
+SetOption( "Initialequity", 10000000 );
+MaxPos = 1;
+SetOption( "maxopenpositions", MaxPos );
+SetPositionSize( 1000, spsshares);
+SetOption( "CommissionMode", 1 );
+SetOption( "CommissionAmount", 0.02 );
+SetTradeDelays( 0, 0, 0, 0 );
+BuyPrice = SellPrice = Close;
+ShortPrice = CoverPrice = Close;
+
+//  ObFn==K-ration,CAR/MDD,expectancy
+
+// User Functions
+function sDate ( nDate ) //
+{
+//if you want string without separators you have to specify this in your
+//NumToStr call http://www.amibroker.com/f?numtostr
+//string=NumToStr(SelectedValue(nDate),1,False);
+
+    string = StrFormat( "%0.9g", nDate );
+//extract string part
+    aa = StrLeft( string, 3 );
+    mm = StrMid( string, 3, 2 );
+    dd = StrRight( string, 2 );
+//transform year en num
+    aa1 = StrToNum( aa ) + 1900; // ONLY CORRECT AFTER 2000
+//return string
+    result = dd + "/" + mm + "/" + NumToStr( aa1, 1, False );
+    return result;
+}
+
+function zscore(input,period){
+ score=IIf(stdev(input,period)!=0,(input- MA( input, period) ) / StDev( input, period),0);
+	return score;
+}
+
+
+function roundTo( input, step )
+{
+    round_temp = 0;
+
+    if ( step == 0 )
+    {
+        round_temp == input;
+    }
+    else
+    {
+        floor_temp = int( ( input / step ) ) * step ;
+        //_TRACE("#,"+"input="+input[BarCount-1]+",step="+step[BarCount-1]+",floor_temp="+floor_temp[BarCount-1]);
+        round_temp = floor_temp;
+        remainder = input - floor_temp;
+        round_temp = IIf( remainder >= step / 2, round_temp + step, round_temp );
+    }
+
+    return round_temp;
+}
+
+function range ( input, range, step )
+{
+
+    HHV_temp = hhv( input, range );
+    LLV_temp = llv( input, range );
+    out = IIf((HHV_temp - LLV_temp) !=0,( input - LLV_temp ) / ( HHV_temp - LLV_temp ),0);
+    //_TRACE("#,"+"out="+out[BarCount-1]);
+    out1 = roundTo( out, step );
+    //(((OldValue - OldMin) * NewRange) / OldRange) + NewMin
+    out1=(((out1- 0) * 2) / 0.8) + -1;
+    return out1;
+
+}
+
+function export( input, filename )
+{
+//does not work for intraday bars
+    j = 0;
+
+    for ( i = 0;i < 100;i++ )
+    {
+        if ( StrExtract( input, i ) != "" )
+        {
+            j = j + 1;
+            temp=VarGet( StrExtract( input, i ) );
+            temp=IIf(IsEmpty(temp),-100001,temp);
+            VarSet("var"+i,temp);
+        }
+    }
+	
+    fh = fopen( filename, "w" ) ;
+
+    if ( fh )
+    {
+        //write header
+        fputs("Symbol"+",Date",fh);
+
+        for ( i = 0;i < j;i++ )
+        {
+			fputs(","+StrExtract(input,i),fh);
+
+        }
+        fputs( "\n", fh );       
+        
+
+        for ( k = 0;k < BarCount;k++ )
+        {
+            //write content
+            content = "";
+				y = Year(); 
+ 		  		m = Month(); 
+		   		d = Day(); 
+				fputs( Name() + "," , fh );
+   		   		ds = StrFormat("%02.0f-%02.0f-%02.0f", d[ k ], m[ k ], y[ k ] ); 
+				fputs(ds,fh);
+            for ( i = 0;i < j;i++ )
+            {
+                temp = VarGet( "var"+i );
+                fputs(","+temp[k],fh);
+//                content = content + temp[k];
+                //add comma to header if not the last word
+            }
+
+            fputs( "\n", fh );
+        }
+
+        fclose( fh );
+    }
+}
+
+function referencePrice(entryCondition,exitCondition,referenceArray){
+BarsSinceExit = BarsSince( exitCondition );
+    InFirstPos = Flip( entryCondition, exitCondition);
+    FirstTrigger = ExRem( InFirstPos, exitCondition );
+    BarsSinceFirstTrigger = BarsSince( FirstTrigger );
+    FirstTriggerPrice = IIf( BarsSinceFirstTrigger < BarsSinceExit, Ref( referenceArray, -BarsSinceFirstTrigger ), 0 );
+    return FirstTriggerPrice;
+}
+
+
+// Global Variables and Parameters
+
+WorkLocation = ParamList( "WorkLocation", "Office|Home" ); 
+RMathProcedure( "library(nnet)" ); 
+RMathProcedure( "library(caret)" ); 
+RMathProcedure( "library(pROC)" ); 
+RMathProcedure( "library(ptw)" ); 
+RMathProcedure( "set.seed(42)" ); 
+RMathProcedure( "rm(list=ls())" ); 
+
+if ( WorkLocation == "Office" ) 
+{ 
+    RMathProcedure( "setwd(<DQ>C:<BS>Users<BS>Pankaj<BS>Documents<BS>Seafile<BS>ML-Coursera<BS>R<BS>swing<DQ>)" ); 
+} 
+else 
+    if ( WorkLocation == "Home" ) 
+    { 
+        RMathProcedure( "setwd(<DQ>D:<BS>Seafile<BS>ML-Coursera<BS>R<BS>swing<DQ>)" ); 
+    } 
+ 
+Ticker = Name(); 
+VarTick = StrReplace( Ticker, "$", "D" ); 
+VarTick = StrReplace( VarTick, "&", "_" ); 
+VarTick = StrReplace( VarTick, "£", "P" ); 
+
+startdate = Status( "rangefromdate" ); 
+enddate = Status( "rangetodate" ); 
+
+
+/* Indicators*/
+
+trend = cf_trend(); 
+updownbar = cv_updownbar;
+swingHigh = cv_swinghigh;
+swingLow = cv_swinglow;
+swingLevel = cv_swinglevel;
+daysinuptrend = BarsSince( trend <= 0 ); 
+daysindowntrend = BarsSince( trend >= 0 ); 
+daysintrend = IIf(trend==1,daysinuptrend,IIf(trend==-1,daysindowntrend,0)); 
+daysinupswing = BarsSince( updownbar <= 0 ); 
+daysindownswing = BarsSince( updownbar >= 0 ); 
+swing=IIf(daysinupswing>0,1,0);
+daysinswing=daysinupswing+daysindownswing;
+trendsignal=trend!=Ref(trend,-1);
+trendopenprice=ValueWhen(trendsignal,C);
+trendreturn=ln(C/trendopenprice)*100;
+dayreturn=ln(C/Ref(C,-1))*100;
+
+closerange = range( Close, 10, 0.2 ); 
+closezscore = zscore( C, 10 ); 
+highzscore = zscore( H, 10 ); 
+lowzscore = zscore( L, 10 ); 
+mazscore = zscore( MA( C, 10 ), 10 ); 
+
+bardate = DateNum(); 
+//_TRACE( "#" + ",Date:" + sDate( bardate[BarCount-3] ) + ",Name:" + Name() + ",ShortMFE:" + shortmfe[BarCount-3] + ",ShortMAE:" + shortmae[BarCount-3] + ",ShortMFEMAE:" + shortmfemae[BarCount-3] ); 
+//This was the original y commented below.
+//y = IIf( Ref( cv_updownbar, 1 ) ==1 && Ref(cv_outsidebar,1) != 1, 1, IIf( ref( cv_updownbar, 1 ) == -1 && Ref(cv_outsidebar,1)!=1, 0, 2 ) ); 
+y = IIf( Ref( cv_updownbar, 1 ) ==1 || (Ref(cv_outsidebar,1) == 1 && swing==-1), 1, IIf( ref( cv_updownbar, 1 ) == -1 ||( Ref(cv_outsidebar,1)==1 && swing==1), 0, 2 ) ); 
+
+export( "trend,daysintrend,swing,daysinswing,closezscore,highzscore,lowzscore,mazscore,dayreturn,y", "c:\\test\\" + varTick + "_3.csv" );
+
+/* RConnect*/
+
+RMathSetDateArray( DateNum(), "tradedate" ); 
+RMathSetArray( Nz( trend, -1000001 ), "trend" ); 
+RMathSetArray( Nz( daysintrend, -1000001 ), "daysintrend" ); 
+RMathSetArray( Nz( swing, -1000001 ), "swing" ); 
+RMathSetArray( Nz( daysinswing, -1000001 ), "daysinswing" ); 
+RMathSetArray( Nz( closezscore, -1000001 ), "closezscore" ); 
+RMathSetArray( Nz( lowzscore, -1000001 ), "lowzscore" ); 
+RMathSetArray( Nz( highzscore, -1000001 ), "highzscore" ); 
+RMathSetArray( Nz( mazscore, -1000001 ), "mazscore" ); 
+RMathSetArray( Nz( dayreturn, -1000001 ), "dayreturn" ); 
+RMathSetArray( Nz( dayreturn, -1000001 ), "dayreturn" ); 
+RMathSetArray( Nz( y, -1000001 ), "y" ); 
+RMathProcedure( "data<-data.frame(" 
+                + "tradedate=tradedate," 
+                + "trend=trend," 
+                + "swing=swing,"
+                + "daysintrend=daysintrend,"
+                + "daysinswing=daysinswing," 
+                + "closezscore=closezscore," 
+                + "highzscore=highzscore," 
+                + "lowzscore=lowzscore," 
+                + "mazscore=mazscore," 
+                + "dayreturn=dayreturn," 
+                + "y=y)" ); 
+
+RMathProcedure( "data$tradedate<-as.Date(as.character(data$tradedate),format=<DQ>%d-%m-%Y<DQ>)" ); 
+RMathProcedure( "data[data==-1000001] = NA" ); 
+RMathProcedure( "na_indices<-unique (unlist (lapply (data, function (x) which (is.na (x)))))" ); //length of na_indices will be the number of zeros we need to add. 
+RMathProcedure( "data<-na.omit(data)" ); 
+RMathProcedure( "trainingdata<-data[data$tradedate<as.Date(<DQ>01-01-2013<DQ>,<DQ>%d-%m-%Y<DQ>),]" );
+
+//Make transformations
+
+RMathProcedure( "a<-(data$daysintrend-mean(trainingdata$daysintrend))/(3*sd(trainingdata$daysintrend)/(2*pi))");
+RMathProcedure( "data$softmax_daysintrend<-1/(1+exp(-a))" ); 
+
+RMathProcedure( "b<-(data$daysinswing-mean(trainingdata$daysinswing))/(3*sd(trainingdata$daysinswing)/(2*pi))");
+RMathProcedure( "data$softmax_daysinswing<-1/(1+exp(-b))" ); 
+
+//Recreate training data
+RMathProcedure( "trainingdata<-data[data$tradedate<as.Date(<DQ>01-01-2013<DQ>,<DQ>%d-%m-%Y<DQ>),]" );
+RMathProcedure("trainingdata<-trainingdata[,names(trainingdata)%in%c("
+											+"<DQ>trend<DQ>,"
+											+"<DQ>softmax_daysintrend<DQ>,"
+											+"<DQ>swing<DQ>,"
+                                            +"<DQ>softmax_daysinswing<DQ>,"
+                                            +"<DQ>closezscore<DQ>,"
+                                            +"<DQ>highzscore<DQ>,"
+                                            +"<DQ>lowzscore<DQ>,"
+                                            +"<DQ>mazscore<DQ>,"
+                                            +"<DQ>dayreturn<DQ>,"
+                                            +"<DQ>y<DQ>"
+                                            +")"
+                                            +"]"
+                                            );
+RMathProcedure( "data$y=factor(data$y,labels=c(<DQ>down<DQ>,<DQ>up<DQ>))" ); 
+RMathProcedure( "save( trainingdata, file = <DQ>trainingdata_" + vartick + ".Rdata<DQ> )" );
+                                           
+validBackTest=0;
+TrainingRows = RMathGetValue( "dim(trainingdata)[1]" ); 
+if ( TrainingRows  > 1250 ) 
+{ 
+    validBackTest = 1; 
+} 
+
+//Load Model
+RMathProcedure( "load( <DQ>fit_" + vartick + "_caret_4.Rdata<DQ> )" ); 
+
+// Predict
+RMathProcedure( "predict.raw <-predict( fit, data, type = <DQ>prob<DQ> )" ); 
+RMathProcedure( "predict.class <-predict( fit, data )" ); 
+
+//calculate accuracy for training and validation
+trainingrange = IIf( DateNum() < 1130101, 1.0, 0.0 ); 
+validationrange = IIf( DateNum() >= startdate && DateNum() <= enddate, 1.0, 0.0 ); 
+RMathSetArray( Nz( trainingrange, -1000001 ), "trainingrange" ); 
+RMathSetArray( Nz( validationrange, -1000001 ), "validationrange" ); 
+RMathProcedure( "trainingrange<-trainingrange[-na_indices]" ); 
+RMathProcedure( "validationrange<-validationrange[-na_indices]" ); 
+RMathProcedure( "predict.class.training <-predict.class[trainingrange==1]" ); 
+RMathProcedure( "actual.class.training <-data$y[trainingrange==1]" ); 
+RMathProcedure( "train.accuracy = mean( predict.class.training == actual.class.training )" ); 
+RMathProcedure( "predict.class.validation <-predict.class[validationrange==1]" ); 
+RMathProcedure( "actual.class.validation <-data$y[validationrange==1]" ); 
+RMathProcedure( "validation.accuracy = mean( predict.class.validation == actual.class.validation )" ); 
+train_accuracy = RMathGetValue( "train.accuracy" ); 
+validation_accuracy = RMathGetValue( "validation.accuracy" ); 
+
+//Manipulation to create a predict.raw df with inital rows set to null
+RMathProcedure("result=apply(predict.raw,1,which.max)-1");
+RMathProcedure("data$result<-factor(result,labels=c(<DQ>down<DQ>,<DQ>up<DQ>))");
+RMathProcedure( "begin<-matrix(rep(-1,length(na_indices)*2),nrow=length(na_indices),ncol=2)" ); 
+RMathProcedure("colnames(begin)<-c(<DQ>down<DQ>,<DQ>up<DQ>)");
+RMathProcedure( "predict.raw<-rbind(begin,predict.raw)" ); 
+RMathProcedure( "result<-append( result, rep( 2, length( na_indices ) ), 0 )" ); 
+RMathProcedure("predict.raw<-apply(predict.raw,1,max)");
+predict_raw=RMathGetArray("predict.raw");
+result = RMathGetArray("result");
+distance = 1 + abs( 0.5- predict_raw); 
+//RMathProcedure( "save( data, file = <DQ>data_" + vartick + ".Rdata<DQ> )" );
+
+RMathProcedure("trainingdata<-data[trainingrange==1,]");
+RMathProcedure("confusion<-caret::confusionMatrix(trainingdata$result,trainingdata$y)");
+
+
+/* Buy and Sell Rules*/
+LongEntryCondition=result==1;// && dayreturn>0;
+Buy =  LongEntryCondition;
+LongExitCondition=(result==0);
+Sell = LongExitCondition; 
+        
+ShortEntryCondition=result==0;//  && dayreturn<0 ;
+Short =  ShortEntryCondition;
+ShortExitCondition=(result==1);
+Cover = ShortExitCondition; 
+
+
+/* Stop Loss and TP Rules*/
+referenceShortHighPrice = referencePrice( ShortEntryCondition, ShortExitCondition, H );
+referenceShortLowPrice = referencePrice( ShortEntryCondition, ShortExitCondition, L );
+referenceLongHighPrice = referencePrice( LongEntryCondition, LongExitCondition, H );
+referenceLongLowPrice = referencePrice( LongEntryCondition, LongExitCondition, L );
+referenceLongEntryPrice = referencePrice( LongEntryCondition, LongExitCondition, C );
+referenceShortEntryPrice = referencePrice( ShortEntryCondition, ShortExitCondition, C );
+referenceEntryPrice = referenceLongEntryPrice + ReferenceShortEntryPrice;
+referenceHighPrice = referenceShortHighPrice + referenceLongHighPrice;
+referenceLowPrice = referenceShortLowPrice + referenceLongLowPrice;
+
+StopLossPoints = IIf( Buy, abs( referenceLowPrice - referenceEntryPrice ), IIf( Short, abs( referenceHighPrice - referenceEntryPrice ), 0 ) );
+TakeProfitPoints = 2 * IIf( Buy, abs( referenceHighPrice - referenceEntryPrice ), IIf( Short, abs( referenceLowPrice - referenceEntryPrice ), 0 ) );
+
+StopLossPoints = Min( 0.5 * ATR( 10 ), stopLossPoints ) ;
+TakeProfitPoints = Max( 5*ATR( 10 ), TakeProfitPoints ) ;
+
+ApplyStop( stopTypeloss, stopModePoint, StopLossPoints, 1 );
+//ApplyStop( stopTypeprofit, stopModePoint, TakeProfitPoints, 1 );
+
+
+// Plots
+
+Plot( C, "C", colorBlack, styleCandle );
+
+//Explore
+Filter=1;
+AddColumn(result,"Result",1.0);
+AddColumn(predict_raw,"predictionconfidence",1.2);
+AddColumn(trend,"trend",1.2);
+AddColumn(daysintrend,"daysintrend",1.2);
+AddColumn(swing,"swing",1.2);
+AddColumn(daysinswing,"daysinswing",1.2);
+AddColumn(closezscore,"closezscore",1.2);
+AddColumn(highzscore,"highzscore",1.2);
+AddColumn(lowzscore,"lowzscore",1.2);
+AddColumn(mazscore,"mazscore",1.2);
+AddColumn(dayreturn,"dayreturn",1.2);
+AddColumn(stoplosspoints,"stoplosspoints",1.2);
