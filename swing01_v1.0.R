@@ -27,7 +27,7 @@ sourceCpp("swing/RAmibroker.cpp")
 #                 "8164.95",
 #                 "8170.1",
 #                 "0"
-#                 
+# 
 #         )
 # }
 
@@ -63,7 +63,7 @@ if (args[1] == 1 | args[1]==2) {
         endtime=format(Sys.time(),format="%Y-%m-%d %H-%M-%S")
         md <-
                 kGetOHLCV(
-                        start = "1990-05-21 09:15:00",
+                        start = "2012-10-21 09:15:00",
                         end = endtime,
                         timezone = "Asia/Kolkata",
                         name = "india.nse.index.s4.daily",
@@ -74,8 +74,8 @@ if (args[1] == 1 | args[1]==2) {
                 )
         md$symbol = args[4]
         levellog(logger, "INFO", paste("endtime=",endtime,sep=''))
-        #save(md,file=paste(args[4],".Rdata",sep=""))
-        #load("swing/NSENIFTY_IND___.Rdata")
+        # save(md,file=paste(args[4],".Rdata",sep=""))
+        # load("NSENIFTY_IND___.Rdata")
         if (length(args) == 10 &
             as.POSIXct(args[5], format = "%Y-%m-%d") > md[nrow(md), c("date")]) {
                 # we have ohlc for today. Add to nenifty
@@ -92,9 +92,7 @@ if (args[1] == 1 | args[1]==2) {
                 md <- rbind(md, newrow)
         }
         md <- unique(md) # remove duplicate rows
-        if (!exists("fit")) {
-                load(paste("swing/fit",kairossymbol,"swing01","v1.0.Rdata",sep="_"))          
-        }
+        load(paste("swing/fit",kairossymbol,"swing01","v1.0.Rdata",sep="_"))          
         
         ##### 1. Calculate Indicators ########
         trend = Trend(md$date, md$high, md$low, md$close)
@@ -124,18 +122,18 @@ if (args[1] == 1 | args[1]==2) {
         md$mazscore <-
                 (ma - SMA(ma, 10)) / c(NA9Vec, roll_sd(ma, 10) * sqrt(9 / 10))
         md$adx <- ADX(md[, c("high", "low", "close")])[, c("ADX")]
-        
+        md$atr <- ATR(md[, c("high", "low", "close")], 10)[, 2]
+        md<-na.omit(md)
+
         ####### 2. Generate Buy/Sell Arrays ##########
         
         md$predict.raw <- predict(fit, md, type = 'prob')
         md$predict.class <- predict(fit, md)
-        
+
         md$buy = as.numeric(md$predict.class) == 2
-        md$sell = as.numeric(md$predict.class) == 1 |
-                as.numeric(md$predict.class) == 3
+        md$sell = as.numeric(md$predict.class) == 1 | as.numeric(md$predict.class) == 3
         md$short = as.numeric(md$predict.class) == 1
-        md$cover = as.numeric(md$predict.class) == 2 |
-                as.numeric(md$predict.class) == 3
+        md$cover = as.numeric(md$predict.class) == 2 | as.numeric(md$predict.class) == 3
         
         md$buy = ExRem(md$buy, md$sell)
         
@@ -159,7 +157,6 @@ if (args[1] == 1 | args[1]==2) {
         md$inshorttrade <- Flip(md$short, md$cover)
         
         ###### 3. Create SL/TP Array ############
-        md$atr <- ATR(md[, c("high", "low", "close")], 10)[, 2]
         md$stoploss1 <-
                 ifelse(
                         md$inlongtrade == 1,
@@ -225,7 +222,7 @@ if (args[1] == 1 | args[1]==2) {
         
         ########### SAVE SIGNALS TO REDIS #################
         
-        if (length(args) == 10 &
+        if (writeToRedis & length(args) == 10 &
             as.POSIXct(args[5], format = "%Y-%m-%d") == md[nrow(md), c("date")]) {
                 levellog(logger, "INFO", "Saving trades to Redis")
                 redisConnect()
@@ -254,7 +251,7 @@ if (args[1] == 1 | args[1]==2) {
         
         
         ############### SAVE BOD STOP LEVELS TO REDIS #############
-        if (length(args) == 4 & args[1]==1 ){ # we have args[1]=1,args[2]=strategyname and args[3]==redisdatabase
+        if (writeToRedis & length(args) == 4 & args[1]==1 ){ # we have args[1]=1,args[2]=strategyname and args[3]==redisdatabase
                 levellog(logger, "INFO", "Saving BOD levels to Redis")
                 
                 redisConnect()
