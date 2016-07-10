@@ -73,10 +73,10 @@ kAggregators<-function(x,y,z){
 
 kTags<-function(...,a){
     input<-list(...)[-length(list(...))]
-    #print("input")
-    #print(input)
-    #print("length input")
-    #print(length(input))
+    # print("input")
+    # print(input)
+    # print("length input")
+    # print(length(input))
     tags<-list()
     names<-vector()
     for(i in 1:length(input)){
@@ -97,8 +97,8 @@ kTags<-function(...,a){
     }
     names(tags)<-names
     
-    #print("tags")
-    #print(tags)
+#    print("tags")
+#    print(tags)
     tags
 }
 
@@ -139,65 +139,80 @@ d
 }
 
 kGetOHLCV<-function(start,end,timezone,name,aName=NULL,aValue=NULL,aUnit=NULL,...){
-  startUnix<-as.numeric(as.POSIXct(paste(start,timezone)))*1000
-  endUnix<-as.numeric(as.POSIXct(paste(end,timezone)))*1000
-  start<-kDate(startUnix)
-  end<-kDate(endUnix)
-  if(!is.null(aName)){
-    aggr<-kAggregators(aName,aValue,aUnit)    
-  }
-  tags<-kTags(...,NULL)
-  out<-matrix()
-
-  for(i in 1:5){
-    
-    if(i==1){
-      tempname=paste(name,"open",sep=".")
-    }else if(i==2){
-      tempname=paste(name,"high",sep=".")
-      } else if(i==3){
-      tempname=paste(name,"low",sep=".")
-      }else if(i==4){
-      tempname=paste(name,"settle",sep=".")
-      }else if(i==5){
-      tempname=paste(name,"volume",sep=".")
-    }
-    
-  if(!is.null(aName)){
-    metrics<-kMetrics(tags,tempname,aggr)
-    
-  }else{
-    metrics<-kMetrics(tags,tempname,NULL)
-    
-  }
-  query<-kQueryBody(start,end,metrics)
-  myjson <- toJSON(query, pretty=TRUE)
-#  print(myjson)
-#  cat(i)
-  r<-POST("http://91.121.165.108:8085/api/v1/datapoints/query",body=myjson,encode="json")
-  #print(content(r))
-  m<-matrix(unlist(content(r)$queries[[1]]$results[[1]]$values),ncol=2,byrow=TRUE)
-  if(i==1){
-      colnames(m)<-c("date","open")
-  }else if(i==2){
-      colnames(m)<-c("date","high")
-  } else if(i==3){
-      colnames(m)<-c("date","low")
-  }else if(i==4){
-      colnames(m)<-c("date","close")
-  }else if(i==5){
-      colnames(m)<-c("date","volume")
-  }
-  out <- merge(out, m, by = 1, all = TRUE)
-  }
-  #colnames(out)<-c("date","open","high","low","close","volume")
-  colnames(out)<-c("date","open","high","low","close","volume")
-  out<-out[rowSums(is.na(out))!=6, ]
-  d<-data.frame(out)
-  #d[,1]<-d[,1]/1000
-  d[,1]<-as.POSIXct(d[,1]/1000, origin="1970-01-01", tz="Asia/Kolkata")
   
-  d
+  symbolchange<-read.csv("swing/symbolchange.csv",header=TRUE,stringsAsFactors = FALSE)
+  input=strsplit(list(...)[[1]],"=")[[1]][2]
+  quotes<-data.frame()
+#  print(input)
+#  print(class(input))
+  symbollist<-linkedsymbols(symbolchange$SM_KEY_SYMBOL,symbolchange$SM_NEW_SYMBOL,toupper(input))
+#  print(symbollist)
+  for(i in length(symbollist):1){
+       a<-list(...)
+       a[[1]]=paste("symbol",tolower(symbollist[i]),sep="=")
+       newargs=paste(a,sep=",")
+       startUnix<-as.numeric(as.POSIXct(paste(start,timezone)))*1000
+       endUnix<-as.numeric(as.POSIXct(paste(end,timezone)))*1000
+       startLong<-kDate(startUnix)
+       endLong<-kDate(endUnix)
+       if(!is.null(aName)){
+         aggr<-kAggregators(aName,aValue,aUnit)    
+       }
+       tags<-kTags(newargs,NULL)
+       out<-matrix()
+       
+       for(i in 1:5){
+         
+         if(i==1){
+           tempname=paste(name,"open",sep=".")
+         }else if(i==2){
+           tempname=paste(name,"high",sep=".")
+         } else if(i==3){
+           tempname=paste(name,"low",sep=".")
+         }else if(i==4){
+           tempname=paste(name,"settle",sep=".")
+         }else if(i==5){
+           tempname=paste(name,"volume",sep=".")
+         }
+         
+         if(!is.null(aName)){
+           metrics<-kMetrics(tags,tempname,aggr)
+           
+         }else{
+           metrics<-kMetrics(tags,tempname,NULL)
+           
+         }
+         query<-kQueryBody(startLong,endLong,metrics)
+         myjson <- toJSON(query, pretty=TRUE)
+         #save(myjson,file="myjson.R")
+         #  cat(i)
+         r<-POST("http://91.121.165.108:8085/api/v1/datapoints/query",body=myjson,encode="json")
+         if(content(r)$queries[[1]]$sample_size>0){
+           m<-matrix(unlist(content(r)$queries[[1]]$results[[1]]$values),ncol=2,byrow=TRUE)
+           if(i==1){
+             colnames(m)<-c("date","open")
+           }else if(i==2){
+             colnames(m)<-c("date","high")
+           } else if(i==3){
+             colnames(m)<-c("date","low")
+           }else if(i==4){
+             colnames(m)<-c("date","close")
+           }else if(i==5){
+             colnames(m)<-c("date","volume")
+           }
+           out <- merge(out, m, by = 1, all = TRUE)
+         }
+     }
+         if(ncol(out)==6){
+           colnames(out)<-c("date","open","high","low","close","volume")
+           out<-out[rowSums(is.na(out))!=6, ]
+           d<-data.frame(out)
+           quotes<-rbind(quotes,d)
+           
+         }
+       }
+  quotes[,1]<-as.POSIXct(quotes[,1]/1000, origin="1970-01-01", tz="Asia/Kolkata")
+  quotes
 }
 #a <- merge(Matrix1, Matrix2, by = c("Col1", "Col3"), all = TRUE)
 #r<-kGetOHLCV(start="2014-10-30 00:00:00",end="2014-11-05 00:00:00",timezone="Asia/Kolkata",name="india.nse.future.s1.1min",aName=NULL,aValue=NULL,aUnit=NULL,"symbol=nsenifty","expiry=20141127")
