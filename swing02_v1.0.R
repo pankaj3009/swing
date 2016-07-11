@@ -183,12 +183,12 @@ if (args[1] == 1 | args[1]==2) {
                 CalculateEquityCurve("NSENIFTY_IND___",
                                      md[startindex:nrow(md), ],
                                      trades,
-                                     rep(525, nrow(md) - startindex),
+                                     rep(1050, nrow(md) - startindex),
                                      brokerage = 0.0002)
         
         ##### Custom Rules ########
         # 0. Parameters
-        numbercontracts = 7
+        numbercontracts = 14
         drawdownDaysThreshold = 60
         
         
@@ -227,11 +227,11 @@ if (args[1] == 1 | args[1]==2) {
                 redisConnect()
                 redisSelect(as.numeric(args[3]))  
                 bsell=signals[nrow(signals),c("sell")]
-                bcover=signals[nrow(signals),c("cover")] 
-                strategyside=ifelse(bsell,"SELL",ifelse(bcover,"COVER","AVOID"));
+                bcover=signals[nrow(signals),c("cover")]
+                strategyside=ifelse(bsell==1,"SELL",ifelse(bcover==1,"COVER","AVOID"));
                 strategysize=ifelse(strategyside!="AVOID",abs(equity[nrow(derivedequity)-1,c("contracts")]),0)
-                if(strategysize>0){
-                        redisRPush(paste("trades",args[2],sep=":"),charToRaw(paste(args[4], strategysize,strategyside,0, sep = ":")))
+                if(strategysize>0){ #push to redis if bsell or bcover are ==1. Other values are intra-day stops
+                  redisRPush(paste("trades",args[2],sep=":"),charToRaw(paste(args[4], strategysize,strategyside,0, sep = ":")))
                         levellog(logger, "INFO", paste(args[4], strategysize,strategyside,0, sep = ":"))
                 }
                 
@@ -260,9 +260,10 @@ if (args[1] == 1 | args[1]==2) {
                 strategyside=ifelse(bbuy,"BUY",ifelse(bshort,"SHORT","AVOID"));
                 strategysize=ifelse(strategyside!="AVOID",as.character(amendedsize[length(amendedsize)] * 75),0)
                 slpoints=md[nrow(md),c("stoplosslevel")]
+                underlying=md[nrow(md),c("close")]
                 if(strategysize>0){
-                        redisRPush(paste("recontrades",args[2],sep=":"),charToRaw(paste(args[4], strategysize,strategyside,slpoints, sep = ":")))
-                        levellog(logger, "INFO", paste(args[4], strategysize,strategyside,slpoints, sep = ":"))
+                        redisRPush(paste("recontrades",args[2],sep=":"),charToRaw(paste(args[4], strategysize,strategyside,slpoints,underlying, sep = ":")))
+                        levellog(logger, "INFO", paste("swing02",args[4], strategysize,strategyside,slpoints,underlying, sep = ":"))
                 }
                 redisClose()
         }
