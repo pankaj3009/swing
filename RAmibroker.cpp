@@ -22,6 +22,30 @@
 using namespace Rcpp;
 using namespace std;
 
+// [[Rcpp::export]]
+
+  vector<string> linkedsymbols(StringVector initial,StringVector final,String symbol)
+  {
+    int nSize=final.size();
+    vector<string>out;
+    bool found=true;
+    string value=symbol;
+    while(found){
+      out.push_back(value);
+      for(int i=0;i<nSize;i++){
+        if(final[i]==value){//original symbol has an initial value
+          value=initial[i];
+          out.push_back(value);
+          break;
+        }
+        found=false;
+      }
+      return out;
+    }
+
+    return out;
+  } 
+
 
 NumericVector Shift(NumericVector vec1,NumericVector vec2, int ref){
         int nSize=vec1.size();
