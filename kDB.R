@@ -69,8 +69,8 @@ kMetrics <- function(tags, name, aggregators) {
 kAggregators <- function(x, y, z) {
   sampling <- list(unbox(y), unbox(z))
   names(sampling) <- c("value", "unit")
-  result <- list(unbox(x), sampling)
-  names(result) <- c("name", "sampling")
+  result <- list(unbox(x), unbox(c("true")),sampling)
+  names(result) <- c("name", "align_start_time","sampling")
   return(result)
 }
 
@@ -115,13 +115,14 @@ kGetOHLCV <-
            aggregators = c("first", "max", "min", "last", "sum"),
            aValue = NULL,
            aUnit = NULL,
+           filepath="",
            ...) {
     symbolchange <-
       read.csv("swing/symbolchange.csv",
                header = TRUE,
                stringsAsFactors = FALSE)
     input = strsplit(list(...)[[1]], "=")[[1]][2]
-    quotes <- data.frame()
+    md <- data.frame()
     symbollist <-
       linkedsymbols(symbolchange$SM_KEY_SYMBOL,
                     symbolchange$SM_NEW_SYMBOL,
@@ -173,17 +174,21 @@ kGetOHLCV <-
         colnames(out) <- c("date", ts)
         out <- out[rowSums(is.na(out)) != 6, ]
         d <- data.frame(out)
-        quotes <- rbind(quotes, d)
+        md <- rbind(md, d)
       }
       
     }
-    if (nrow(quotes) > 0) {
-      quotes[, 1] <-
-        as.POSIXct(quotes[, 1] / 1000, origin = "1970-01-01", tz = "Asia/Kolkata")
+    if (nrow(md) > 0) {
+      md[, 1] <-
+        as.POSIXct(md[, 1] / 1000, origin = "1970-01-01", tz = "Asia/Kolkata")
+      md$symbol<-symbollist[1]
     }
     #handle splits
-    quotes<-processSplits(quotes,"swing/splits.csv",symbollist)
-    quotes
+    md<-processSplits(md,"swing/splits.csv",symbollist)
+    if(!missing(filepath)){
+      save(md,file=paste(filepath,symbollist[1],".Rdata",sep=""))
+    }
+    md
   }
 
 processSplits<-function(md,splitinfofile,symbollist){
@@ -196,7 +201,7 @@ processSplits<-function(md,splitinfofile,symbollist){
       print(paste("Processing Split for symbol",symbollist[i],sep=" "))
       subset <- splits[splits$symbol == symbollist[i], ]
       if(nrow(subset)>0){
-        for (j in 1:length(subset)) {
+        for (j in 1:nrow(subset)) {
           if ("open" %in% colnames(md)) {
             md$open <-
               ifelse(

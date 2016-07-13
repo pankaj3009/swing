@@ -14,7 +14,7 @@ writeToRedis = TRUE
 
 #Uncomment the code below for testing
 #writeToRedis=FALSE
-#args<-c("1","swing01","3","NSENIFTY_IND___","2016-07-12","8502.6", "8525.9", "8479.3", "8520", "0")
+#args<-c("1","swing01","3","NSENIFTY_IND___","2016-07-13","8540.45", "8542.95", "8493.75", "8505", "0")
 #args<-c("1","swing01","3","NSENIFTY_IND___")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
@@ -51,6 +51,7 @@ temp <-
     aggregators = c("first", "max", "min", "last", "sum"),
     aValue = "1",
     aUnit = "days",
+    filepath="",
     paste("symbol", tolower(kairossymbol), sep = "=")
   )
 if (nrow(temp) > 0) {
