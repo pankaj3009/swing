@@ -3,18 +3,15 @@ library(nnet)
 library(doParallel)
 library(RcppRoll)
 library(TTR)
-library(Rcpp)
 library(rredis)
 library(log4r)
-source("swing/kDB.R")
-source("swing/BootstrapFunctions.R")
-sourceCpp("swing/RAmibroker.cpp")
+library(RTrade)
 
 writeToRedis = TRUE
 
 #Uncomment the code below for testing
 #writeToRedis=FALSE
-#args<-c("1","swing01","3","NSENIFTY_IND___","2016-07-13","8540.45", "8542.95", "8493.75", "8505", "0")
+#args<-c("1","swing01","3","NSENIFTY_IND___","2016-07-13","8540.45", "8542.95", "8493.75", "8512", "0")
 #args<-c("1","swing01","3","NSENIFTY_IND___")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
@@ -33,9 +30,9 @@ levellog(logger, "INFO", paste(args, collapse = ','))
 kairossymbol = unlist(strsplit(args[4], split = "_"))[1] # get the exchange symbol
 endtime = format(Sys.time(), format = "%Y-%m-%d %H:%M:%S")
 md = data.frame() # create placeholder for market data
-if (file.exists(paste("mddaily/",args[4], ".Rdata", sep = ""))) {
+if (file.exists(paste(args[4], ".Rdata", sep = ""))) {
   #Load image if it exists to save time
-  load(paste("mddaily/",args[4], ".Rdata", sep = ""))
+  load(paste(args[4], ".Rdata", sep = ""))
   start = strftime(md[nrow(md), c("date")] + 1, tz = "Asia/Kolkata", "%Y-%m-%d %H:%M:%S")
 } else{
   # if image does not exist, give a fixed time
@@ -43,6 +40,7 @@ if (file.exists(paste("mddaily/",args[4], ".Rdata", sep = ""))) {
 }
 temp <-
   kGetOHLCV(
+    paste("symbol", tolower(kairossymbol), sep = "="),
     start = start,
     end = endtime,
     timezone = "Asia/Kolkata",
@@ -50,20 +48,18 @@ temp <-
     ts = c("open", "high", "low", "settle", "volume"),
     aggregators = c("first", "max", "min", "last", "sum"),
     aValue = "1",
-    aUnit = "days",
-    filepath="",
-    paste("symbol", tolower(kairossymbol), sep = "=")
+    aUnit = "days"
   )
 if (nrow(temp) > 0) {
   # change col name of settle to close, if temp is returned with data
-  colnames(temp) <- c("date", "open", "high", "low", "close", "volume")
+  colnames(temp) <- c("date", "open", "high", "low", "close", "volume","symbol")
   temp$symbol = args[4]
 }
 md <- rbind(md, temp)
-save(md, file = paste("mddaily/",args[4], ".Rdata", sep = "")) # save new market data to disc
+save(md, file = paste(args[4], ".Rdata", sep = "")) # save new market data to disc
 
 levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
-# load(paste("mddaily/",args[4],".Rdata",sep=""))
+# load(paste(args[4],".Rdata",sep=""))
 
 if (length(args) == 10 &
     as.POSIXct(args[5], format = "%Y-%m-%d") > md[nrow(md), c("date")]) {
@@ -81,7 +77,7 @@ if (length(args) == 10 &
   md <- rbind(md, newrow)
 }
 md <- unique(md) # remove duplicate rows
-load(paste("swing/fit", kairossymbol, "swing01", "v1.0.Rdata", sep =
+load(paste("fit", kairossymbol, "swing01", "v1.0.Rdata", sep =
              "_"))
 
 
@@ -168,14 +164,14 @@ md$stoplosslevel = pmin(md$stoploss1, md$stoploss2)
 
 ##### 4. Generate Trades #########
 startindex = which(md$date == "2013-01-01")
-signals <- GenerateSignals(md, md$stoplosslevel)
+signals <- ApplyStop(md, md$stoplosslevel)
 trades <- GenerateTrades(signals)
 trades$brokerage <-
   (trades$entryprice * 0.0002 + trades$exitprice * 0.0002) / trades$entryprice
 trades$netpercentprofit <-
   trades$percentprofit - trades$brokerage
 equity <-
-  CalculateEquityCurve("NSENIFTY_IND___",
+  CalculatePortfolioEquityCurve("NSENIFTY_IND___",
                        md[startindex:nrow(md),],
                        trades,
                        rep(1050, nrow(md) - startindex),
@@ -208,10 +204,10 @@ amendedsize <-
     numbercontracts - pmin(drawdownDaysThreshold, ddbars) * numbercontracts /
       drawdownDaysThreshold
   )
-amendedsize <- shift(amendedsize, 1)
+amendedsize <- Ref(amendedsize, -1)
 amendedsize[1] = numbercontracts
 derivedequity <-
-  CalculateEquityCurve("NSENIFTY_IND___", md[startindex:nrow(md),], trades, amendedsize *
+  CalculatePortfolioEquityCurve("NSENIFTY_IND___", md[startindex:nrow(md),], trades, amendedsize *
                          75, brokerage = 0.0002)
 
 ########### SAVE SIGNALS TO REDIS #################
@@ -225,7 +221,7 @@ if (writeToRedis & length(args) == 10 &
   bcover = signals[nrow(signals), c("cover")]
   strategyside = ifelse(bsell == 1, "SELL", ifelse(bcover ==
                                                      1, "COVER", "AVOID"))
-  
+
   strategysize = ifelse(strategyside != "AVOID", abs(equity[nrow(derivedequity) -
                                                               1, c("contracts")]), 0)
   if (strategysize > 0) {
@@ -237,12 +233,12 @@ if (writeToRedis & length(args) == 10 &
              "INFO",
              paste(args[4], strategysize, strategyside, 0, sep = ":"))
   }
-  
+
   #save last entry action to redis
   bbuy = signals[nrow(signals), c("buy")]
   bshort = signals[nrow(signals), c("short")]
   strategyside = ifelse(bbuy, "BUY", ifelse(bshort, "SHORT", "AVOID"))
-  
+
   strategysize = ifelse(strategyside != "AVOID", as.character(amendedsize[length(amendedsize)] * 75), 0)
   slpoints = md[nrow(md), c("stoplosslevel")]
   if (strategysize > 0) {
@@ -263,13 +259,13 @@ if (writeToRedis &
     args[1] == 1) {
   # we have args[1]=1,args[2]=strategyname and args[3]==redisdatabase
   levellog(logger, "INFO", "Saving BOD levels to Redis")
-  
+
   redisConnect()
   redisSelect(as.numeric(args[3]))
   bbuy = signals[nrow(signals), c("buy")]
   bshort = signals[nrow(signals), c("short")]
   strategyside = ifelse(bbuy, "BUY", ifelse(bshort, "SHORT", "AVOID"))
-  
+
   strategysize = ifelse(strategyside != "AVOID", as.character(amendedsize[length(amendedsize)] * 75), 0)
   slpoints = md[nrow(md), c("stoplosslevel")]
   underlying = md[nrow(md), c("close")]
@@ -328,21 +324,21 @@ if (args[1] == 0 & length(args) == 1)
   seed <- .Random.seed
   #save(".Random.seed",file="random_state_seed.Rdata") ## save current state
   setwd("C:/Users/Pankaj/Documents/Seafile/ML-Coursera/R")
-  load("swing/NSENIFTY_IND___.Rdata")
+  load("NSENIFTY_IND___.Rdata")
   data <- md
   trend = Trend(data$date, data$high, data$low, data$close)
   data$trend <- trend$trend
   data$daysinupswing <- BarsSince(trend$updownbar <= 0)
   data$daysindownswing = BarsSince(trend$updownbar >= 0)
   daysinuptrend = BarsSince(trend$trend <= 0)
-  
+
   daysindowntrend = BarsSince(trend$trend >= 0)
-  
+
   data$daysoutsidetrend = BarsSince(trend$trend != 0)
   data$daysintrend = ifelse(trend$trend == 1,
                             daysinuptrend,
                             ifelse(trend$trend == -1, daysindowntrend, 0))
-  
+
   sd <- roll_sd(md$close, 10) * sqrt(9 / 10)
   NA9Vec <- rep(NA, 9)
   sd <- c(NA9Vec, sd)
@@ -359,16 +355,16 @@ if (args[1] == 0 & length(args) == 1)
                                                             10))
   data$adx <-
     ADX(data[, c("high", "low", "close")])[, c("ADX")]
-  updownbar <- RowShift(trend$updownbar, 1)
+  updownbar <- Ref(trend$updownbar, 1)
   updownbar[nrow(data)] = 0
-  outsidebar <- RowShift(trend$outsidebar, 1)
+  outsidebar <- Ref(trend$outsidebar, 1)
   outsidebar[nrow(data)] = 0
   data$y <-
     ifelse(outsidebar == 1, 2, ifelse(updownbar == -1, 0, 1))
-  
+
   data <- na.omit(data)
   trainingdata <- data[data$date < "2013-01-01",]
-  
+
   #train nn
   td <-
     trainingdata[, names(trainingdata) %in% c(
@@ -383,7 +379,7 @@ if (args[1] == 0 & length(args) == 1)
       "mazscore",
       "y"
     )]
-  
+
   #factor y
   td$y = factor(td$y, labels = c("down", "up", "avoid"))
   td <-
@@ -417,7 +413,7 @@ if (args[1] == 0 & length(args) == 1)
   fileName = paste("fit_", "NSENIFTY", "swing,v1.2.Rdata", sep = "_")
   fit$seed <- seed
   save(fit, file = fileName)
-  
+
   #Statistics
   shortlist = rownames(fit$bestTune)
   Accuracy = fit$results[shortlist,]$Accuracy
@@ -427,7 +423,7 @@ if (args[1] == 0 & length(args) == 1)
   confusion.matrix.training <-
     caret::confusionMatrix(td.predict.class, td$y)
   print(confusion.matrix.training)
-  
+
   #Validation
   vd <- data[data$date >= "2013-01-01",]
   vd$y = factor(vd$y, labels = c("down", "up", "avoid"))
@@ -441,7 +437,7 @@ if (args[1] == 0 & length(args) == 1)
     caret::confusionMatrix(validation.predict.class, vd$y)
   print(mean(validation.predict.class == vd$y))
   print(confusion.matrix.validation)
-  
+
   importance <- varImp(fit, scale = FALSE)
   print(importance)
 } else{
