@@ -52,7 +52,7 @@ temp <-
   )
 if (nrow(temp) > 0) {
   # change col name of settle to close, if temp is returned with data
-  colnames(temp) <- c("date", "open", "high", "low", "close", "volume","symbol")
+  colnames(temp) <- c("date", "open", "high", "low", "close", "volume")
   temp$symbol = args[4]
 }
 md <- rbind(md, temp)
@@ -124,7 +124,7 @@ b <-
   (md$daysinswing - mean(md$daysinswing[md$date < "2013-01-01"])) / (3 * sd(md$daysinswing[md$date <
                                                                                              "2013-01-01"]) * sqrt((trainingsize - 1) / trainingsize) / (2 * pi))
 md$softmax_daysinswing <- 1 / (1 + exp(-b))
-md$dayreturn <- (log(md$close) - log(Ref(md$close, -1))) *
+md$dayreturn <- (log(md$close) - log(RowShift(md$close, -1))) *
   100
 
 ####### 2. Generate Buy/Sell Arrays ##########
@@ -177,14 +177,14 @@ md$stoplosslevel = pmin(md$stoploss1, md$stoploss2)
 
 ##### 4. Generate Trades #########
 startindex = which(md$date == "2013-01-01")
-signals <- ApplyStop(md, md$stoplosslevel)
+signals <- GenerateSignals(md, md$stoplosslevel)
 trades <- GenerateTrades(signals)
 trades$brokerage <-
   (trades$entryprice * 0.0002 + trades$exitprice * 0.0002) / trades$entryprice
 trades$netpercentprofit <-
   trades$percentprofit - trades$brokerage
 equity <-
-  CalculatePortfolioEquityCurve("NSENIFTY_IND___",
+  CalculateEquityCurve("NSENIFTY_IND___",
                        md[startindex:nrow(md),],
                        trades,
                        rep(1050, nrow(md) - startindex),
@@ -217,10 +217,10 @@ amendedsize <-
     numbercontracts - pmin(drawdownDaysThreshold, ddbars) * numbercontracts /
       drawdownDaysThreshold
   )
-amendedsize <- Ref(amendedsize, -1)
+amendedsize <- RowShift(amendedsize, 1)
 amendedsize[1] = numbercontracts
 derivedequity <-
-  CalculatePortfolioEquityCurve("NSENIFTY_IND___", md[startindex:nrow(md),], trades, amendedsize *
+  CalculateEquityCurve("NSENIFTY_IND___", md[startindex:nrow(md),], trades, amendedsize *
                          75, brokerage = 0.0002)
 
 ########### SAVE SIGNALS TO REDIS #################
@@ -368,9 +368,9 @@ if (args[1] == 0 & length(args) == 1)
                                                             10))
   data$adx <-
     ADX(data[, c("high", "low", "close")])[, c("ADX")]
-  updownbar <- Ref(trend$updownbar, 1)
+  updownbar <- RowShift(trend$updownbar, 1)
   updownbar[nrow(data)] = 0
-  outsidebar <- Ref(trend$outsidebar, 1)
+  outsidebar <- RowShift(trend$outsidebar, 1)
   outsidebar[nrow(data)] = 0
   data$y <-
     ifelse(outsidebar == 1, 2, ifelse(updownbar == -1, 0, 1))

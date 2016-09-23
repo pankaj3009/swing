@@ -6,12 +6,14 @@ library(TTR)
 library(rredis)
 library(log4r)
 library(RTrade)
+library(zoo)
 
 writeToRedis = TRUE
 
+
 #Uncomment the code below for testing
 #writeToRedis=FALSE
-#args<-c("1","swing01","3","NSENIFTY_IND___","2016-07-13","8540.45", "8542.95", "8493.75", "8512", "0")
+#args<-c("1","swing01","3","NSENIFTY_IND___","2016-09-21", "8780.5", "8786.0", "8757.35", "8777.05", "0")
 #args<-c("1","swing01","3","NSENIFTY_IND___")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
@@ -52,7 +54,7 @@ temp <-
   )
 if (nrow(temp) > 0) {
   # change col name of settle to close, if temp is returned with data
-  colnames(temp) <- c("date", "open", "high", "low", "close", "volume")
+  colnames(temp) <- c("date", "open", "high", "low", "close", "volume","symbol")
   temp$symbol = args[4]
 }
 md <- rbind(md, temp)
@@ -163,16 +165,17 @@ md$stoplosslevel = pmin(md$stoploss1, md$stoploss2)
 
 
 ##### 4. Generate Trades #########
-startindex = which(md$date == "2013-01-01")
-signals <- GenerateSignals(md, md$stoplosslevel)
+startindex = which(md$date == "2016-04-01")
+mdsubset<-md[startindex:nrow(md),]
+signals <- ApplyStop(mdsubset, mdsubset$stoplosslevel)
 trades <- GenerateTrades(signals)
 trades$brokerage <-
   (trades$entryprice * 0.0002 + trades$exitprice * 0.0002) / trades$entryprice
 trades$netpercentprofit <-
   trades$percentprofit - trades$brokerage
 equity <-
-  CalculateEquityCurve("NSENIFTY_IND___",
-                       md[startindex:nrow(md),],
+  CalculatePortfolioEquityCurve("NSENIFTY_IND___",
+                       mdsubset,
                        trades,
                        rep(1050, nrow(md) - startindex),
                        brokerage = 0.0002)
@@ -184,30 +187,20 @@ drawdownDaysThreshold = 60
 
 
 # 1. Generate drawdown bars vector.
-equityreturn <- diff(equity$profit, 1)
-equityreturn <- c(NA, equityreturn)
-equityreturn <-
-  equityreturn / 4000000 # covert to a percentage on a constant denominator. This is driven by the assumption under dddays calculator
-# We are starting from 1st Jan 2013 to calculate drawdowns days. So subset equity return from this date.
-#equityreturn<-equityreturn[4267:nrow(md)]
-equityreturn[1] = 0
-ddbars <-
-  calcDrawdownDayCount(seq(1, length(equityreturn), 1), equityreturn, rep(1, length(equityreturn)))
-drawdowns <-
-  data.frame(
-    "date" = equity$date,
-    "profit" = equity$profit,
-    "ddbars" = ddbars
-  )
-amendedsize <-
-  round(
-    numbercontracts - pmin(drawdownDaysThreshold, ddbars) * numbercontracts /
-      drawdownDaysThreshold
-  )
-amendedsize <- RowShift(amendedsize, -1)
-amendedsize[1] = numbercontracts
+returns <-
+  trades[trades$entrytime >= "2016-04-01" , c("netpercentprofit")]
+bars <- trades[trades$entrytime >= "2016-04-01", c("bars")]
+amendedsize<-RTrade::calcDerivedContracts(dddays=0,ddamt=0.1,recoverybonus=0,ddcost=0,stop=0,margin=1,charttitle="swing01",
+                                          returnvector=returns,
+                                          tradebarvector=bars,
+                                          contractsize=14,
+                                          derivedleg=1)
+tmp<-data.frame(date=trades$entrytime,amendedsize=amendedsize)
+tmp1<-merge(tmp,md,by="date",all=TRUE)
+amendedsize=na.locf(tmp1$amendedsize)
+
 derivedequity <-
-  CalculateEquityCurve("NSENIFTY_IND___", md[startindex:nrow(md),], trades, amendedsize *
+  CalculatePortfolioEquityCurve("NSENIFTY_IND___", mdsubset, trades, amendedsize *
                          75, brokerage = 0.0002)
 
 ########### SAVE SIGNALS TO REDIS #################
@@ -227,11 +220,11 @@ if (writeToRedis & length(args) == 10 &
   if (strategysize > 0) {
     #push to redis if bsell or bcover are ==1. Other values are intra-day stops
     redisRPush(paste("trades", args[2], sep = ":"), charToRaw(paste(
-      args[4], strategysize, strategyside, 0, sep = ":"
+      args[4], strategysize, strategyside, 0,strategysize, sep = ":"
     )))
     levellog(logger,
              "INFO",
-             paste(args[4], strategysize, strategyside, 0, sep = ":"))
+             paste(args[4], strategysize, strategyside, 0,strategysize, sep = ":"))
   }
 
   #save last entry action to redis
@@ -243,11 +236,11 @@ if (writeToRedis & length(args) == 10 &
   slpoints = md[nrow(md), c("stoplosslevel")]
   if (strategysize > 0) {
     redisRPush(paste("trades", args[2], sep = ":"), charToRaw(
-      paste(args[4], strategysize, strategyside, slpoints, sep = ":")
+      paste(args[4], strategysize, strategyside, slpoints,0, sep = ":")
     ))
     levellog(logger,
              "INFO",
-             paste(args[4], strategysize, strategyside, slpoints, sep = ":"))
+             paste(args[4], strategysize, strategyside, slpoints,0, sep = ":"))
   }
   redisClose()
 }
@@ -262,13 +255,23 @@ if (writeToRedis &
 
   redisConnect()
   redisSelect(as.numeric(args[3]))
-  bbuy = signals[nrow(signals), c("buy")]
-  bshort = signals[nrow(signals), c("short")]
-  strategyside = ifelse(bbuy, "BUY", ifelse(bshort, "SHORT", "AVOID"))
+ # bbuy = signals[nrow(signals), c("buy")]
+#  bshort = signals[nrow(signals), c("short")]
+#  strategyside = ifelse(bbuy, "BUY", ifelse(bshort, "SHORT", "AVOID"))
+  # bbuy = length(grep("Long",trades[nrow(trades),c("trade")]))
+  # bshort = length(grep("Short",trades[nrow(trades),c("trade")]))
+   size = derivedequity[nrow(derivedequity),c("contracts")]
 
+    strategyside = ifelse(size>0, "BUY", ifelse(size<0, "SHORT", "AVOID"))
+  
+  buyindices=which(signals$buy>=1)
+  shortindices=which(signals$short>=1)
+  buyindex=tail(buyindices,1)
+  shortindex=tail(shortindices,1)
+  
   strategysize = ifelse(strategyside != "AVOID", as.character(amendedsize[length(amendedsize)] * 75), 0)
-  slpoints = md[nrow(md), c("stoplosslevel")]
-  underlying = md[nrow(md), c("close")]
+  slpoints = mdsubset[max(buyindex,shortindex), c("stoplosslevel")]
+  underlying = mdsubset[max(buyindex,shortindex), c("close")]
   if (strategysize > 0) {
     redisRPush(paste("recontrades", args[2], sep = ":"), charToRaw(
       paste(
@@ -303,12 +306,20 @@ if (writeToRedis &
 
 if (args[1] == 2) {
   #Bootstrap
-  par(mfrow = c(2, 4))
+#  par(mfrow = c(2, 4))
   returns <-
-    trades[trades$entrytime >= "2013-01-01", c("netpercentprofit")]
-  bars <- trades[trades$entrytime >= "2013-01-01", c("bars")]
+    trades[trades$entrytime >= "2013-01-01" & trades$entrytime < "2016-01-01" , c("netpercentprofit")]
+  bars <- trades[trades$entrytime >= "2013-01-01" & trades$entrytime < "2016-01-01", c("bars")]
   count <- length(returns)
-  bootstrap(returns, bars, 1000, 401, 60)
+  print(count)
+  
+  bootstrap(dddays=0,ddamt=0.10,recoverybonus=0,ddcost=0,stop=0,margin=1,charttitle="swing01",
+            returnvector=returns,
+            tradebarvector=bars,
+            samples=1000,
+            samplesize=as.integer(count/3),
+            contractsize=7,
+            derivedleg=1)
 }
 
 
@@ -355,9 +366,9 @@ if (args[1] == 0 & length(args) == 1)
                                                             10))
   data$adx <-
     ADX(data[, c("high", "low", "close")])[, c("ADX")]
-  updownbar <- RowShift(trend$updownbar, 1)
+  updownbar <- Ref(trend$updownbar, 1)
   updownbar[nrow(data)] = 0
-  outsidebar <- RowShift(trend$outsidebar, 1)
+  outsidebar <- Ref(trend$outsidebar, 1)
   outsidebar[nrow(data)] = 0
   data$y <-
     ifelse(outsidebar == 1, 2, ifelse(updownbar == -1, 0, 1))
