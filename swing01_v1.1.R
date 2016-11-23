@@ -9,12 +9,15 @@ library(RTrade)
 library(zoo)
 
 writeToRedis = TRUE
-
+getmarketdata=TRUE
+dataCutOffBefore="2015-01-01"
+BackTestStartDate="2016-04-01"
+BackTestEndDate="2017-03-31"
 
 #Uncomment the code below for testing
 #writeToRedis=FALSE
-#args<-c("1","swing01","3","NSENIFTY_IND___","2016-09-21", "8780.5", "8786.0", "8757.35", "8777.05", "0")
-#args<-c("1","swing01","3","NSENIFTY_IND___")
+#args<-c("1","swing01","3","NSENIFTY_IND___","2016-11-21","8100.3", "8100.8", "7916.45", "7936.45", "0")
+# args<-c("1","swing01","3","NSENIFTY_IND___")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
 # args[3] is the redisdatabase
@@ -40,29 +43,43 @@ if (file.exists(paste(args[4], ".Rdata", sep = ""))) {
   # if image does not exist, give a fixed time
   start = "2012-10-21 09:15:00"
 }
+if(getmarketdata){
 temp <-
   kGetOHLCV(
     paste("symbol", tolower(kairossymbol), sep = "="),
+    df=md,
     start = start,
     end = endtime,
     timezone = "Asia/Kolkata",
     name = "india.nse.index.s4.daily",
-    ts = c("open", "high", "low", "settle", "volume"),
+    ts = c("open", "high", "low","settle", "volume"),
     aggregators = c("first", "max", "min", "last", "sum"),
     aValue = "1",
-    aUnit = "days"
+    aUnit = "days",
+    splits = data.frame(
+      date = as.POSIXct(character(), tz = "Asia/Kolkata"),
+      symbol = character(),
+      oldshares = numeric(),
+      newshares = numeric()
+    )
   )
 if (nrow(temp) > 0) {
   # change col name of settle to close, if temp is returned with data
-  colnames(temp) <- c("date", "open", "high", "low", "close", "volume","symbol")
+  #colnames(temp) <- c("date", "open", "high", "low", "close", "volume","symbol")
   temp$symbol = args[4]
 }
-md <- rbind(md, temp)
+#md <- rbind(md, temp)
+md<-temp
 save(md, file = paste(args[4], ".Rdata", sep = "")) # save new market data to disc
 
+if (nrow(md) > 0) {
+  #change col name of settle to close, if temp is returned with data
+  colnames(md) <- c( "date","open","high","low","close","volume","symbol","splitadjust",
+                     "aopen","ahigh","alow","aclose","avolume")
+}
 levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
 # load(paste(args[4],".Rdata",sep=""))
-
+}
 if (length(args) == 10 &
     as.POSIXct(args[5], format = "%Y-%m-%d") > md[nrow(md), c("date")]) {
   # we have ohlc for today. Add to nsenifty
@@ -74,8 +91,15 @@ if (length(args) == 10 &
       "high" = as.numeric(args[7]),
       "low" = as.numeric(args[8]),
       "close" = as.numeric(args[9]),
-      "volume" = as.numeric(args[10])
-    )
+      "volume" = as.numeric(args[10]),
+        "aopen" = as.numeric(args[6]),
+        "ahigh" = as.numeric(args[7]),
+        "alow" = as.numeric(args[8]),
+        "aclose" = as.numeric(args[9]),
+        "avolume" = as.numeric(args[10]),
+        "splitadjust"=1
+        )
+    
   md <- rbind(md, newrow)
 }
 md <- unique(md) # remove duplicate rows
@@ -165,7 +189,7 @@ md$stoplosslevel = pmin(md$stoploss1, md$stoploss2)
 
 
 ##### 4. Generate Trades #########
-startindex = which(md$date == "2016-04-01")
+startindex = which(md$date == BackTestStartDate)
 mdsubset<-md[startindex:nrow(md),]
 signals <- ApplyStop(mdsubset, mdsubset$stoplosslevel)
 trades <- GenerateTrades(signals)
