@@ -17,7 +17,7 @@ BackTestEndDate="2017-03-31"
 #Uncomment the code below for testing
 #writeToRedis=FALSE
 #args<-c("1","swing01","3","NSENIFTY_IND___","2016-11-21","8100.3", "8100.8", "7916.45", "7936.45", "0")
-# args<-c("1","swing01","3","NSENIFTY_IND___")
+#args<-c("1","swing01","3","NSENIFTY_IND___")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
 # args[3] is the redisdatabase
@@ -72,14 +72,15 @@ if (nrow(temp) > 0) {
 md<-temp
 save(md, file = paste(args[4], ".Rdata", sep = "")) # save new market data to disc
 
+levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
+# load(paste(args[4],".Rdata",sep=""))
+}
 if (nrow(md) > 0) {
   #change col name of settle to close, if temp is returned with data
   colnames(md) <- c( "date","open","high","low","close","volume","symbol","splitadjust",
                      "aopen","ahigh","alow","aclose","avolume")
 }
-levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
-# load(paste(args[4],".Rdata",sep=""))
-}
+
 if (length(args) == 10 &
     as.POSIXct(args[5], format = "%Y-%m-%d") > md[nrow(md), c("date")]) {
   # we have ohlc for today. Add to nsenifty

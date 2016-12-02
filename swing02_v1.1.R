@@ -71,14 +71,16 @@ if (nrow(temp) > 0) {
 #md <- rbind(md, temp)
 md<-temp
 save(md, file = paste(args[4], ".Rdata", sep = "")) # save new market data to disc
+
+levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
+# load(paste(args[4],".Rdata",sep=""))
+}
 if (nrow(md) > 0) {
   #change col name of settle to close, if temp is returned with data
   colnames(md) <- c( "date","open","high","low","close","volume","symbol","splitadjust",
                      "aopen","ahigh","alow","aclose","avolume")
 }
-levellog(logger, "INFO", paste("endtime=", endtime, sep = ''))
-# load(paste(args[4],".Rdata",sep=""))
-}
+
 if (length(args) == 10 &
     as.POSIXct(args[5], format = "%Y-%m-%d") > md[nrow(md), c("date")]) {
   # we have ohlc for today. Add to nsenifty
