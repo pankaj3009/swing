@@ -56,8 +56,10 @@ kDrawdownDaysThreshold=as.numeric(static$DrawdownDaysThreshold)
 kDrawdownCost=as.numeric(static$DrawdownCost)
 kRecoveryBonus=as.numeric(static$RecoveryBonus)
 kMoneyManagement=as.numeric(static$MoneyManagement)
-
+kBackTestEndDate=strftime(adjust("India",as.Date(kBackTestEndDate, tz = kTimeZone),bdc=2),"%Y-%m-%d")
+kBackTestStartDate=strftime(adjust("India",as.Date(kBackTestStartDate, tz = kTimeZone),bdc=0),"%Y-%m-%d")
 setwd(kHomeDirectory)
+
 
 today<-strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
 logger <- create.logger()
