@@ -34,7 +34,7 @@ if(length(args)<=1 && length(newargs>1)){
 }
 redisClose()
 
-
+kUseSystemDate<-as.logical(static$UseSystemDate)
 kWriteToRedis <- as.logical(static$WriteToRedis)
 kGetMarketData<-as.logical(static$GetMarketData)
 kDataCutOffBefore<-static$DataCutOffBefore
@@ -294,61 +294,69 @@ if(length(args)>1 && args[1]==1){
 
 entrysize <- 0
 exitsize <- 0
-if (length(which(as.Date(optionTrades$entrytime,tz=kTimeZone) == Sys.Date())) == 1) {
-  entrysize <- optionTrades[as.Date(optionTrades$entrytime,tz=kTimeZone) == Sys.Date(), c("size")][1]
-}
-if (length(which(as.Date(optionTrades$exittime,tz=kTimeZone) == Sys.Date())) >= 1) {
-  exittime<-which(as.Date(optionTrades$exittime,tz=kTimeZone) == Sys.Date())
-  exitsize <- sum(optionTrades[exittime, c("size")])
-}
 
-if (kWriteToRedis && length(args)>1 && args[1]==1) {
-  if (exitsize > 0) {
-    redisConnect()
-    redisSelect(args[3])
-    out <- optionTrades[which(as.Date(optionTrades$exittime,tz=kTimeZone) == Sys.Date()),]
-    for (o in 1:nrow(out)) {
-      startingposition <- abs(GetCurrentPosition(out[o, "symbol"], optionTrades)) + out[o, "size"]
-      strategyside <- ifelse(grepl("BUY",out[o,'trade']), "SELL", ifelse(grepl("SHORT",out[o,'trade']), "COVER", "AVOID"))
-      redisString <- paste(out[o, "symbol"],
-                           out[o, "size"],
-                           strategyside,
-                           0,
-                           out[o, "size"],
-                           sep = ":")
+if (kUseSystemDate) {
+  today = Sys.Date()
+} else{
+  today = advance("India",dates=Sys.Date(),n=-1,timeUnit = 0,bdc=2)
+}
+yesterday=advance("India",dates=today,n=-1,timeUnit = 0,bdc=2)
+
+entrycount = which(as.Date(optionTrades$entrytime,tz=kTimeZone) == today)
+exitcount = which(as.Date(optionTrades$exittime,tz=kTimeZone) == today)
+
+if (length(exitcount) > 0 && kWriteToRedis && args[1]==1) {
+  redisConnect()
+  redisSelect(args[3])
+  out <- optionTrades[which(as.Date(optionTrades$exittime,tz=kTimeZone) == today),]
+  uniquesymbols=NULL
+  for (o in 1:nrow(out)) {
+    if(length(grep(out[o,"symbol"],uniquesymbols))==0){
+      uniquesymbols[length(uniquesymbols)+1]<-out[o,"symbol"]
+      startingposition = GetCurrentPosition(out[o, "symbol"], optionTrades,position.on=yesterday,trades.till=yesterday)
+      redisString = paste(out[o, "symbol"],
+                          abs(startingposition),
+                          ifelse(startingposition>0,"SELL","COVER"),
+                          0,
+                          abs(startingposition),
+                          sep = ":")
       redisRPush(paste("trades", args[2], sep = ":"),
                  charToRaw(redisString))
       levellog(logger,
                "INFO",
                paste(args[2], redisString, sep = ":"))
-
     }
-    redisClose()
   }
+  redisClose()
+}
 
-  if (entrysize > 0) {
-    redisConnect()
-    redisSelect(args[3])
-    out <- optionTrades[which(as.Date(optionTrades$entrytime,tz=kTimeZone) == Sys.Date()),]
-    for (o in 1:nrow(out)) {
-      startingposition <- abs(GetCurrentPosition(out[o, "symbol"], optionTrades)) - out[o, "size"]
-      slpoints <- mdsubset[as.Date(mdsubset$date,tz=kTimeZone)==Sys.Date(), c("stoplosslevel")]
-      strategyside <- ifelse(grepl("BUY",out[o,'trade']), "BUY", ifelse(grepl("SHORT",out[o,'trade']), "SHORT", "AVOID"))
-      redisString <- paste(out[o, "symbol"],
-                           out[o, "size"],
-                           strategyside,
-                           slpoints,
-                           abs(startingposition),
-                           sep = ":")
+
+if (length(entrycount) > 0 && kWriteToRedis && args[1]==1) {
+  redisConnect()
+  redisSelect(args[3])
+  out <- optionTrades[which(as.Date(optionTrades$entrytime,tz=kTimeZone) == today),]
+  uniquesymbols=NULL
+  for (o in 1:nrow(out)) {
+    if(length(grep(out[o,"symbol"],uniquesymbols))==0){
+      uniquesymbols[length(uniquesymbols)+1]<-out[o,"symbol"]
+      startingposition = GetCurrentPosition(out[o, "symbol"], optionTrades,trades.till=yesterday,position.on = today)
+      todaytradesize=GetCurrentPosition(out[o, "symbol"], optionTrades)-startingposition
+      redisString = paste(out[o, "symbol"],
+                          abs(todaytradesize),
+                          ifelse(todaytradesize>0,"BUY","SHORT"),
+                          0,
+                          abs(startingposition),
+                          sep = ":")
       redisRPush(paste("trades", args[2], sep = ":"),
                  charToRaw(redisString))
       levellog(logger,
                "INFO",
                paste(args[2], redisString, sep = ":"))
-
+      
     }
-    redisClose()
+    
   }
+  redisClose()
 }
 
 
