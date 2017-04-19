@@ -301,8 +301,8 @@ if(length(out)>0){
 }
 
 if(length(args)>1 && args[1]==1){
-  save(md,file=paste(args[2],"md.R",sep="."))
-  save(futureTrades,file=paste(args[2],"futureTrades.R",sep="."))
+  save(md,file=paste(args[2],"md.Rdata",sep="."))
+  save(futureTrades,file=paste(args[2],"futureTrades.Rdata",sep="."))
   
 }
 

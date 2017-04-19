@@ -285,8 +285,8 @@ if(length(out)>0){
 }
 
 if(length(args)>1 && args[1]==1){
-  save(md,file=paste(args[2],"md.R",sep="."))
-  save(optionTrades,file=paste(args[2],"optionTrades.R",sep="."))
+  save(md,file=paste(args[2],"md.Rdata",sep="."))
+  save(optionTrades,file=paste(args[2],"optionTrades.Rdata",sep="."))
 
 }
 
