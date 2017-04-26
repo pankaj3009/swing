@@ -102,7 +102,7 @@ if(kGetMarketData){
 }
 if (length(args) > 1 && args[1]==1) {
   #Backtesting with today's data from realtime sources
-  newrow <- getPriceArrayFromRedis(9,"NSENIFTY_IND___","tick","close",paste(today, " 09:12:00"))
+  newrow <- getPriceArrayFromRedis(9,"NSENIFTY_IND___","tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
   newrow <-
     data.frame(
       "symbol" = "NSENIFTY",
