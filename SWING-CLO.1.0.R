@@ -262,7 +262,7 @@ out <- which(as.Date(optionTrades$entrytime,tz=kTimeZone) == Sys.Date())
 if(length(out)>0){
   for(o in 1:length(out)){
     index<-out[o]
-    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"))
+    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
     if(nrow(newrow)==1){
       optionTrades$entryprice[index]<-newrow$settle[1]
       optionTrades$exitprice[index]<-newrow$settle[1]
@@ -277,7 +277,7 @@ out <- which(as.Date(optionTrades$exittime,tz=kTimeZone) == Sys.Date()|is.na(opt
 if(length(out)>0){
   for(o in 1:length(out)){
     index<-out[o]
-    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"))
+    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
     if(nrow(newrow)==1){
       optionTrades$exitprice[index]<-newrow$settle[1]
     }

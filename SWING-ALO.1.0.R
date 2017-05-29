@@ -16,7 +16,7 @@ if(length(args.commandline)>0){
   args<-args.commandline
 }
 
-# args<-c("2","swing01","3")
+# args<-c("1","swing-alo-02","3")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Generate Signals in Production 2=> Backtest and BootStrap 4=>Save BOD Signals to Redis
 # args[2] is the strategy name
 # args[3] is the redisdatabase
@@ -102,7 +102,7 @@ if(kGetMarketData){
 }
 if (length(args) > 1 && args[1]==1) {
   #Backtesting with today's data from realtime sources
-  newrow <- getPriceArrayFromRedis(9,"NSENIFTY_IND___","tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
+  newrow <- getPriceArrayFromRedis(9,"NSENIFTY_IND___","tick","close",paste(today, " 09:12:00"), paste(today, " 15:30:00"))
   newrow <-
     data.frame(
       "symbol" = "NSENIFTY",
@@ -266,7 +266,7 @@ out <- which(as.Date(optionTrades$entrytime,tz=kTimeZone) == Sys.Date())
 if(length(out)>0){
   for(o in 1:length(out)){
     index<-out[o]
-    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"))
+    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
     if(nrow(newrow)==1){
       optionTrades$entryprice[index]<-newrow$settle[1]
       optionTrades$exitprice[index]<-newrow$settle[1]
@@ -281,7 +281,7 @@ out <- which(as.Date(optionTrades$exittime,tz=kTimeZone) == Sys.Date()|is.na(opt
 if(length(out)>0){
   for(o in 1:length(out)){
     index<-out[o]
-    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"))
+    newrow <- getPriceArrayFromRedis(9,optionTrades$symbol[index],"tick","close",paste(today, " 09:12:00"),paste(today, " 15:30:00"))
     if(nrow(newrow)==1){
       optionTrades$exitprice[index]<-newrow$settle[1]
     }
